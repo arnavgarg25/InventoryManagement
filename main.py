@@ -339,6 +339,28 @@ class InventoryEnvironment(Env):
         # reduce number of days by 1
         self.days_length -= 1
 
+        # Normalize prod units
+        min_produnits = 0
+        max_produnits = 1000000 #self.prod_storage_capacity
+        target_min = 0
+        target_max = 100
+        prev_prod = self.prod_units
+        self.prod_units = (self.prod_units - min_produnits) / (max_produnits - min_produnits) * (target_max - target_min) + target_min
+        # Normalize ware units
+        min_wareunits = 0
+        max_wareunits = 1000000 #self.ware_storage_capacity
+        target_min = 0
+        target_max = 100
+        prev_ware = self.ware_units
+        self.ware_units = (self.ware_units - min_wareunits) / (max_wareunits - min_wareunits) * (target_max - target_min) + target_min
+        # Normalize bloem units
+        min_bloemunits = 0
+        max_bloemunits = 1000000 #self.bloem_storage_capacity
+        target_min = 0
+        target_max = 100
+        prev_bloem = self.bloem_units
+        self.bloem_units = (self.bloem_units - min_bloemunits) / (max_bloemunits - min_bloemunits) * (target_max - target_min) + target_min
+
         obs = [self.prod_units, self.ware_units, self.bloem_units, self.choice,
                self.no_of_trucks_prod_ware, self.no_of_trucks_prod_bloem, self.no_of_trucks_ware_bloem,
                self.units_transit_prod_ware, self.units_transit_prod_bloem, self.units_transit_ware_bloem]
@@ -346,6 +368,10 @@ class InventoryEnvironment(Env):
         obs.extend(bloem_forecast)
         ware_forecast = self.total_pred_jhb[self.day-5:self.day + 5]
         obs.extend(ware_forecast)
+
+        self.prod_units = prev_prod
+        self.ware_units = prev_ware
+        self.bloem_units = prev_bloem
 
         # placeholder for additional info
         info = {}
@@ -419,7 +445,7 @@ if not os.path.exists(logdir):
 
 from stable_baselines3 import PPO, DDPG
 ent_coef = 0.1
-learning_rate=0.003
+learning_rate = 0.003
 clip_range = 0.2
 log_freq = 100
 
@@ -429,31 +455,53 @@ model = PPO('MlpPolicy',env,verbose=1, tensorboard_log = logdir, ent_coef=ent_co
 TIMESTEPS = 100000
 model.learn(total_timesteps=TIMESTEPS, callback=[MeticLogger(log_freq=log_freq)])
 model.save("ppo_IM")
-print(env.net_profit)
-print(env.fill_rate)
+print(f"Train net profit: {env.net_profit}")
+print(f"Train fill rate: {env.fill_rate}")
 loaded_model = PPO.load("ppo_IM")
 
 # Evaluate the loaded model
-obs = env.reset()
-done = False
-for day in range(347):
-    action, _state = loaded_model.predict(obs)
-    obs, reward, done, info = env.step(action)
-    print(day)
-    print(action)
-    if done:
-        obs = env.reset()
-'''
-obs = env.reset()
-done = False
-while not done:
-    action, _state = model.predict(obs, deterministic=True)
-    print("Action: ", action)
-    obs, reward, done, info = env.step(action)
-    print('obs=', obs, 'reward=', reward, 'done=', done)
-print('Net profit =', env.net_profit)
-print('Fill rate =', env.fill_rate)
+summary_writer = tf.summary.create_file_writer(logdir)
+with summary_writer.as_default():
+    obs = env.reset()
+    done = False
+    for day in range(347):
+        action, _state = loaded_model.predict(obs)
+        obs, reward, done, info = env.step(action)
+        print(f"Day: {day}")
+        print(f"Action: {action}")
+        print(f"Obs: {obs}")
 
+        tf.summary.scalar('Production/Production units available', env.prod_units, step=day)
+        tf.summary.scalar('Production/Action', env.prod_action, step=day)
+        tf.summary.scalar('Ware/Warehouse current demand', total_pred_jhb[day], step=day)
+        tf.summary.scalar('Ware/Action', env.ware_action, step=day)
+        tf.summary.scalar('Ware/Warehouse units available', env.ware_units, step=day)
+        tf.summary.scalar('Bloem/Bloem current demand', total_pred_bloem[day], step=day)
+        tf.summary.scalar('Bloem/Action', env.bloem_action, step=day)
+        tf.summary.scalar('Bloem/Bloem units available', env.bloem_units, step=day)
+        tf.summary.scalar('Trucks/Number of trucks in operation prod to ware', env.no_of_trucks_prod_ware, step=day)
+        tf.summary.scalar('Trucks/Number of trucks in operation prod to bloem', env.no_of_trucks_prod_bloem, step=day)
+        tf.summary.scalar('Trucks/Number of trucks in operation ware to bloem', env.no_of_trucks_ware_bloem, step=day)
+        tf.summary.scalar('Cost/Total manufacturing cost', env.total_manufacture_cost, step=day)
+        tf.summary.scalar('Cost/Total delivery cost', env.total_delivery_cost, step=day)
+        tf.summary.scalar('Cost/Total storage cost', env.total_storage_cost, step=day)
+        tf.summary.scalar('Cost/Overall cost',
+                          env.total_delivery_cost + env.total_manufacture_cost + env.total_storage_cost, step=day)
+        tf.summary.scalar('Profitability/Revenue', env.revenue_gained, step=day)
+        tf.summary.scalar('Profitability/Total cost',
+                          env.total_delivery_cost + env.total_manufacture_cost + env.total_storage_cost, step=day)
+        tf.summary.scalar('Profitability/Net profit', env.net_profit, step=day)
+        tf.summary.scalar('Units/Units satisfied', env.units_satisfied, step=day)
+        tf.summary.scalar('Units/Units unsatisfied', env.units_unsatisfied, step=day)
+        tf.summary.scalar('Order fulfilment rate', env.fill_rate, step=day)
+
+        if done:
+            print('DONE')
+            obs = env.reset()
+    print(f"Net profit: {env.net_profit}")
+    print(f"Fill rate: {env.fill_rate}")
+
+'''
 summary_writer = tf.summary.create_file_writer(logdir)
 # Write the summary data for the line graphs
 with summary_writer.as_default():
