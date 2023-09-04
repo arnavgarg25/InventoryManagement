@@ -567,7 +567,7 @@ log_freq = 100
 
 model = PPO('MlpPolicy',env,verbose=1, tensorboard_log = logdir, ent_coef=ent_coef, learning_rate=learning_rate)
 
-TIMESTEPS = 1000000
+TIMESTEPS = 100000
 model.learn(total_timesteps=TIMESTEPS, callback=[MeticLogger(log_freq=log_freq)])
 model.save("ppo_IM")
 del model

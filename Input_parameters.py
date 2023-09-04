@@ -8,7 +8,7 @@ initial_bloem_units = 1000 #starting stock
 
 manufacture_cost = 25000/70/30 #per unit
 production_processing_time = 2 #maturation period in days
-min_production_limit = 1000 #units   #reset to 30000
+min_production_limit = 2000 #units   #reset to 30000
 max_production_limit = 150000 #units
 
 prod_storage_capacity = 3175200 #units

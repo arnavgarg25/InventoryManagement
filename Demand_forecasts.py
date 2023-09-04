@@ -33,7 +33,7 @@ model.fit(X_train, y_train)
 
 pred = model.predict(X_test)
 total_pred_bloem = model.predict(final_x)
-total_pred_bloem
+#total_pred_bloem
 
 plt.rcParams["figure.figsize"] = (12,8)
 plt.plot(total_pred_bloem, label ='Random_Forest_Predictions')

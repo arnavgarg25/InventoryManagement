@@ -9,10 +9,9 @@ import shutil
 import time
 from stable_baselines3.common.callbacks import BaseCallback
 from torch.utils.tensorboard import SummaryWriter
-import gym
 from gym import Env
-from gym import spaces
 from gym.spaces import Box, Discrete, MultiDiscrete
+from stable_baselines3 import PPO, DDPG
 
 start_time = time.time()
 
@@ -21,10 +20,10 @@ from stable_baselines3.common.utils import set_random_seed
 seed = 123
 set_random_seed(seed)
 
-#Import demand forecasts
+# Import demand forecasts
 from Demand_forecasts import df_Bloem, df_jhb, total_pred_bloem, total_pred_jhb
 
-#Import input parameters
+# Import input parameters
 from Input_parameters import (initial_prod_units, initial_bloem_units, initial_ware_units, manufacture_cost,
                               production_processing_time, min_production_limit, max_production_limit,
                               prod_storage_capacity, ware_storage_capacity, bloem_storage_capacity,
@@ -32,6 +31,7 @@ from Input_parameters import (initial_prod_units, initial_bloem_units, initial_w
                               transport_cost_prodware_Bloem, transport_time_prod_ware, transport_time_prodware_Bloem,
                               prod_storage_cost, ware_storage_cost, bloem_storage_cost, distribution_percent_bloem,
                               selling_price)
+
 
 class InventoryEnvironment(Env):
     def __init__(self, initial_bloem_units, initial_ware_units, initial_prod_units, bloem_storage_capacity,
@@ -70,7 +70,7 @@ class InventoryEnvironment(Env):
         # define action space (continuous, ordering quantity)
         self.num_stock_points = 3  # initially just considering bloem, production, warehouse
         self.action_space = Box(low=0, high=1, shape=(self.num_stock_points,), dtype=np.float32)
-        #self.action_space = MultiDiscrete([10,10,10])
+        # self.action_space = MultiDiscrete([10,10,10])
 
         # define observation space
         self.num_obs_points = 30
@@ -89,6 +89,7 @@ class InventoryEnvironment(Env):
         self.units_unsatisfied = 0
         self.fill_rate = 0
         self.revenue_gained = 0
+        self.net_profit = 0
         self.total_storage_cost = 0
         self.total_manufacture_cost = 0
         self.total_delivery_cost = 0
@@ -99,7 +100,7 @@ class InventoryEnvironment(Env):
         self.produce_vector = []
         self.units_moving_prod_ware_vector = []
 
-        #Part of observation space
+        # Part of observation space
         self.no_of_trucks_prod_ware = 0
         self.no_of_trucks_prod_bloem = 0
         self.no_of_trucks_ware_bloem = 0
@@ -108,7 +109,7 @@ class InventoryEnvironment(Env):
         self.units_transit_ware_bloem = 0
         self.choice = 0
 
-    def reset(self):
+    def reset(self, **kwargs):
         # Reset starting inventory
         self.bloem_units = self.initial_bloem_units
         self.ware_units = self.initial_ware_units
@@ -152,11 +153,11 @@ class InventoryEnvironment(Env):
     def step(self, action):
         self.current_revenue = 0
         self.current_cost = 0
-        reward=0
+        reward = 0
 
         prod, ware, bloem = action
         # 1) production producing quantity action
-        self.prod_action = ((prod* (self.max_production_limit - self.min_production_limit)) + self.min_production_limit)
+        self.prod_action = ((prod * (self.max_production_limit-self.min_production_limit)) + self.min_production_limit)
         if self.prod_action < self.min_production_limit:
             self.prod_action = self.min_production_limit
         elif self.prod_action > self.max_production_limit:
@@ -189,7 +190,7 @@ class InventoryEnvironment(Env):
             self.prod_units -= self.ware_action
         else:
             self.ware_action = self.prod_units
-            self.prod_units=0
+            self.prod_units = 0
 
         self.units_moving_prod_ware_vector.append(self.ware_action)
 
@@ -204,31 +205,32 @@ class InventoryEnvironment(Env):
         self.current_cost += self.no_of_trucks_prod_ware * self.transport_cost_prod_ware
 
         # 3) Bloem ordering quantity action
-        self.bloem_action = bloem * 588000
+        self.bloem_action = bloem * 58800
 
         # Determine whether bloem order is from prod or ware
         self.no_of_trucks_prod_bloem = 0
         self.no_of_trucks_ware_bloem = 0
+        self.units_moving_ware_bloem = 0
+        self.units_moving_prod_bloem = 0
         self.choice = random.choice(range(1, 101))
 
         # sending units from production to bloem
         if self.choice > self.distribution_percent_bloem:
-            self.choice=1
+            self.choice = 1
             self.production_order_backlog.append(self.bloem_action)
-            units_moving_prod_bloem = 0
-            for n in range(len(self.production_order_backlog) - 1):
+            for n in range(len(self.production_order_backlog)-1):
                 if (self.prod_units > self.production_order_backlog[n] and self.production_order_backlog[n] +
-                        self.bloem_units + units_moving_prod_bloem < self.bloem_storage_capacity):
+                        self.bloem_units + self.units_moving_prod_bloem < self.bloem_storage_capacity):
                     self.prod_units -= self.production_order_backlog[n]
-                    units_moving_prod_bloem += self.production_order_backlog[n]
+                    self.units_moving_prod_bloem += self.production_order_backlog[n]
                     self.production_order_backlog[n] = 0
-                else:  # (dont continue satisfying orders)  #production_order_backlog = [500 200]
+                else:  # (don't continue satisfying orders)  #production_order_backlog = [500 200]
                     break
             self.production_order_backlog = [i for i in self.production_order_backlog if i != 0]
 
-            self.units_moving_prodware_bloem_vector.append(units_moving_prod_bloem)
-            self.no_of_trucks_prod_bloem = math.ceil(units_moving_prod_bloem / self.large_truck_capacity)
-            self.units_transit_prod_bloem = units_moving_prod_bloem
+            self.units_moving_prodware_bloem_vector.append(self.units_moving_prod_bloem)
+            self.no_of_trucks_prod_bloem = math.ceil(self.units_moving_prod_bloem / self.large_truck_capacity)
+            self.units_transit_prod_bloem = self.units_moving_prod_bloem
             self.total_delivery_cost += self.no_of_trucks_prod_bloem * self.transport_cost_prodware_Bloem
             self.current_cost += self.no_of_trucks_prod_bloem * self.transport_cost_prodware_Bloem
 
@@ -236,20 +238,19 @@ class InventoryEnvironment(Env):
         else:
             self.choice = 0
             self.warehouse_order_backlog.append(self.bloem_action)
-            units_moving_ware_bloem = 0
-            for n in range(len(self.warehouse_order_backlog) - 1):
+            for n in range(len(self.warehouse_order_backlog)-1):
                 if (self.ware_units > self.warehouse_order_backlog[n] and self.warehouse_order_backlog[n] +
-                        self.bloem_units + units_moving_ware_bloem < self.bloem_storage_capacity):
+                        self.bloem_units + self.units_moving_ware_bloem < self.bloem_storage_capacity):
                     self.ware_units -= self.warehouse_order_backlog[n]
-                    units_moving_ware_bloem += self.warehouse_order_backlog[n]
+                    self.units_moving_ware_bloem += self.warehouse_order_backlog[n]
                     self.warehouse_order_backlog[n] = 0
                 else:
                     break
             self.warehouse_order_backlog = [i for i in self.warehouse_order_backlog if i != 0]
 
-            self.units_moving_prodware_bloem_vector.append(units_moving_ware_bloem)
-            self.no_of_trucks_ware_bloem = math.ceil(units_moving_ware_bloem / self.large_truck_capacity)
-            self.units_transit_ware_bloem = units_moving_ware_bloem
+            self.units_moving_prodware_bloem_vector.append(self.units_moving_ware_bloem)
+            self.no_of_trucks_ware_bloem = math.ceil(self.units_moving_ware_bloem / self.large_truck_capacity)
+            self.units_transit_ware_bloem = self.units_moving_ware_bloem
             self.total_delivery_cost += self.no_of_trucks_ware_bloem * self.transport_cost_prodware_Bloem
             self.current_cost += self.no_of_trucks_ware_bloem * self.transport_cost_prodware_Bloem
 
@@ -300,7 +301,7 @@ class InventoryEnvironment(Env):
         # 8) calculate reward
         reward += self.current_revenue - self.current_cost  # (Profit-based reward)
 
-        if self.fill_rate > 90: #(service-based reward)
+        if self.fill_rate > 90:  # (service-based reward)
             reward += 90
         elif self.fill_rate > 80:
             reward += 80
@@ -321,7 +322,7 @@ class InventoryEnvironment(Env):
         else:
             reward += -50
 
-        #Normalize reward
+        # Normalize reward
         min_reward = -100000
         max_reward = 100000
         target_min = -10
@@ -341,25 +342,28 @@ class InventoryEnvironment(Env):
 
         # Normalize prod units
         min_produnits = 0
-        max_produnits = 1000000 #self.prod_storage_capacity
+        max_produnits = 1000000  # self.prod_storage_capacity
         target_min = 0
         target_max = 100
         prev_prod = self.prod_units
-        self.prod_units = (self.prod_units - min_produnits) / (max_produnits - min_produnits) * (target_max - target_min) + target_min
+        self.prod_units = ((self.prod_units-min_produnits)/(max_produnits-min_produnits)*(target_max-target_min)
+                           + target_min)
         # Normalize ware units
         min_wareunits = 0
-        max_wareunits = 1000000 #self.ware_storage_capacity
+        max_wareunits = 1000000  # self.ware_storage_capacity
         target_min = 0
         target_max = 100
         prev_ware = self.ware_units
-        self.ware_units = (self.ware_units - min_wareunits) / (max_wareunits - min_wareunits) * (target_max - target_min) + target_min
+        self.ware_units = ((self.ware_units-min_wareunits)/(max_wareunits-min_wareunits)*(target_max-target_min)
+                           + target_min)
         # Normalize bloem units
         min_bloemunits = 0
-        max_bloemunits = 1000000 #self.bloem_storage_capacity
+        max_bloemunits = 1000000  # self.bloem_storage_capacity
         target_min = 0
         target_max = 100
         prev_bloem = self.bloem_units
-        self.bloem_units = (self.bloem_units - min_bloemunits) / (max_bloemunits - min_bloemunits) * (target_max - target_min) + target_min
+        self.bloem_units = ((self.bloem_units-min_bloemunits)/(max_bloemunits-min_bloemunits)*(target_max - target_min)
+                            + target_min)
 
         obs = [self.prod_units, self.ware_units, self.bloem_units, self.choice,
                self.no_of_trucks_prod_ware, self.no_of_trucks_prod_bloem, self.no_of_trucks_ware_bloem,
@@ -382,6 +386,7 @@ class InventoryEnvironment(Env):
         # Implement viz
         pass
 
+
 class MeticLogger(BaseCallback):
     def __init__(self, verbose=0, log_freq=1000):
         super(MeticLogger, self).__init__(verbose)
@@ -391,33 +396,104 @@ class MeticLogger(BaseCallback):
     def _on_step(self):
         if self.n_calls % self.log_freq == 0:
             # add metrics that are on a timestep basis
-            stats = {'financials/net_profit': self.training_env.get_attr("net_profit")[0],
-                     'financials/fill_rate': self.training_env.get_attr("fill_rate")[0],
-                     'financials/prod_units': self.training_env.get_attr("prod_units")[0],
-                     'financials/ware_units': self.training_env.get_attr("ware_units")[0],
-                     'financials/bloem_units': self.training_env.get_attr("bloem_units")[0],
-                     'financials/prod_action': self.training_env.get_attr("prod_action")[0],
-                     'financials/ware_action': self.training_env.get_attr("ware_action")[0],
-                     'financials/bloem_action': self.training_env.get_attr("bloem_action")[0],
-                    }
+            stats = {'Training/net_profit': self.training_env.get_attr("net_profit")[0],
+                     'Training/fill_rate': self.training_env.get_attr("fill_rate")[0],
+                     'Training/prod_units': self.training_env.get_attr("prod_units")[0],
+                     'Training/ware_units': self.training_env.get_attr("ware_units")[0],
+                     'Training/bloem_units': self.training_env.get_attr("bloem_units")[0],
+                     'Training/prod_action': self.training_env.get_attr("prod_action")[0],
+                     'Training/ware_action': self.training_env.get_attr("ware_action")[0],
+                     'Training/bloem_action': self.training_env.get_attr("bloem_action")[0], }
             for key in stats.keys():
                 self.logger.record(key, stats[key])
+'''
+# HYPERPARAMETER TUNING START
+param_grid = {
+    'ent_coef': [0, 0.005, 0.01, 0.05, 0.1, 0.5],
+    'learning_rate': [0.0001, 0.001, 0.003, 0.005, 0.01, 0.1],
+    'clip_range': [0.1, 0.2, 0.3],
+    'n_steps': [32, 128, 256, 512],
+    'batch_size': [32, 64, 128, 4096],
+    'n_epochs': [3, 5, 8],
+    'gamma': [0.8, 0.9, 0.95, 0.99],
+    'gae_lambda': [0.9, 0.95, 1],
+    'vf_coef': [0.25, 0.5, 0.75], }
 
+def evaluate_agent(agent, env, num_episodes=10):
+    episode_rewards = []
+    for _ in range(num_episodes):
+        obs = env.reset()
+        episode_reward = 0
+        while True:
+            action, _ = agent.predict(obs)  # Get the action from the policy
+            obs, reward, done, _ = env.step(action)
+            episode_reward += reward
+            if done:
+                break
+        episode_rewards.append(episode_reward)
+    mean_reward = sum(episode_rewards) / num_episodes
+    return mean_reward
+
+def train_ppo(params):
+    env = InventoryEnvironment(initial_bloem_units=initial_bloem_units, initial_ware_units=initial_ware_units,
+                               initial_prod_units=initial_prod_units, bloem_storage_capacity=bloem_storage_capacity,
+                               ware_storage_capacity=ware_storage_capacity, prod_storage_capacity=prod_storage_capacity,
+                               large_truck_capacity=large_truck_capacity, small_truck_capacity=small_truck_capacity,
+                               df_Bloem=df_Bloem, df_jhb=df_jhb, total_pred_bloem=total_pred_bloem,
+                               total_pred_jhb=total_pred_jhb, selling_price=selling_price,
+                               bloem_storage_cost=bloem_storage_cost, ware_storage_cost=ware_storage_cost,
+                               prod_storage_cost=prod_storage_cost, manufacture_cost=manufacture_cost,
+                               distribution_percent_bloem=distribution_percent_bloem,
+                               production_processing_time=production_processing_time,
+                               transport_time_prod_ware=transport_time_prod_ware,
+                               transport_time_prodware_Bloem=transport_time_prodware_Bloem,
+                               transport_cost_prod_ware=transport_cost_prod_ware,
+                               transport_cost_prodware_Bloem=transport_cost_prodware_Bloem,
+                               min_production_limit=min_production_limit, max_production_limit=max_production_limit)
+    model = PPO("MlpPolicy", env, verbose=0, **params)
+    model.learn(total_timesteps=1000000)  # Adjust total_timesteps as needed
+    mean_reward = evaluate_agent(model, env)  # Implement this function to calculate the mean reward
+    return mean_reward
+
+best_mean_reward = -float("inf")
+best_hyperparams = None
+num_iterations = 30  # Adjust as needed
+
+for _ in range(num_iterations):
+    hyperparams = {
+        'learning_rate': random.choice(param_grid['learning_rate']),
+        'n_steps': random.choice(param_grid['n_steps']),
+        'batch_size': random.choice(param_grid['batch_size']),
+        'ent_coef': random.choice(param_grid['ent_coef']),
+        'gamma': random.choice(param_grid['gamma']),
+        'gae_lambda': random.choice(param_grid['gae_lambda']),
+        'clip_range': random.choice(param_grid['clip_range']),
+        'vf_coef': random.choice(param_grid['vf_coef']),
+        'n_epochs': random.choice(param_grid['n_epochs'])
+    }
+    mean_reward = train_ppo(hyperparams)
+    if mean_reward > best_mean_reward:
+        best_mean_reward = mean_reward
+        best_hyperparams = hyperparams
+print("Best Hyperparameters:", best_hyperparams)
+print("Best Mean Reward:", best_mean_reward)
+# HYPERPARAMETER TUNING END
+'''
 env = InventoryEnvironment(initial_bloem_units=initial_bloem_units, initial_ware_units=initial_ware_units,
-                           initial_prod_units=initial_prod_units, bloem_storage_capacity=bloem_storage_capacity,
-                           ware_storage_capacity=ware_storage_capacity, prod_storage_capacity=prod_storage_capacity,
-                           large_truck_capacity=large_truck_capacity, small_truck_capacity=small_truck_capacity,
-                           df_Bloem=df_Bloem, df_jhb=df_jhb, total_pred_bloem=total_pred_bloem,
-                           total_pred_jhb=total_pred_jhb, selling_price=selling_price,
-                           bloem_storage_cost=bloem_storage_cost, ware_storage_cost=ware_storage_cost,
-                           prod_storage_cost=prod_storage_cost, manufacture_cost=manufacture_cost,
-                           distribution_percent_bloem=distribution_percent_bloem,
-                           production_processing_time=production_processing_time,
-                           transport_time_prod_ware=transport_time_prod_ware,
-                           transport_time_prodware_Bloem=transport_time_prodware_Bloem,
-                           transport_cost_prod_ware=transport_cost_prod_ware,
-                           transport_cost_prodware_Bloem=transport_cost_prodware_Bloem,
-                           min_production_limit=min_production_limit, max_production_limit=max_production_limit)
+                               initial_prod_units=initial_prod_units, bloem_storage_capacity=bloem_storage_capacity,
+                               ware_storage_capacity=ware_storage_capacity, prod_storage_capacity=prod_storage_capacity,
+                               large_truck_capacity=large_truck_capacity, small_truck_capacity=small_truck_capacity,
+                               df_Bloem=df_Bloem, df_jhb=df_jhb, total_pred_bloem=total_pred_bloem,
+                               total_pred_jhb=total_pred_jhb, selling_price=selling_price,
+                               bloem_storage_cost=bloem_storage_cost, ware_storage_cost=ware_storage_cost,
+                               prod_storage_cost=prod_storage_cost, manufacture_cost=manufacture_cost,
+                               distribution_percent_bloem=distribution_percent_bloem,
+                               production_processing_time=production_processing_time,
+                               transport_time_prod_ware=transport_time_prod_ware,
+                               transport_time_prodware_Bloem=transport_time_prodware_Bloem,
+                               transport_cost_prod_ware=transport_cost_prod_ware,
+                               transport_cost_prodware_Bloem=transport_cost_prodware_Bloem,
+                               min_production_limit=min_production_limit, max_production_limit=max_production_limit)
 
 log_dir = "logs"  # Specify the path to your log directory
 models_dir = "models/PPO"  # Specify the path to your log directory
@@ -443,16 +519,23 @@ if not os.path.exists(models_dir):
 if not os.path.exists(logdir):
     os.makedirs(logdir)
 
-from stable_baselines3 import PPO, DDPG
-ent_coef = 0.1
-learning_rate = 0.003
-clip_range = 0.2
+
+ent_coef = 0.1  # 0 to 0.01
+learning_rate = 0.003  # 0.003 to 5e-6
+clip_range = 0.2  # 0.1,0.2,0.3
+n_steps = 2048  # 32 to 5000
+batch_size = 64  # 4 to 4096 [32, 64, 128, 4096] default=64
+n_epochs = 10  # 3 to 30 [3, 5, 8, 10] default=10
+gamma = 0.99  # 0.8 to 0.9997 [0.9, 0.95, 0.99] default=0.99
+gae_lambda = 0.95  # 0.9 to 1 [0.95, 1] default=0.95
+vf_coef = 0.5  # 0.5, 1 [0.25, 0.5, 0.75] default=0.5
 log_freq = 100
 
-model = PPO('MlpPolicy',env,verbose=1, tensorboard_log = logdir, ent_coef=ent_coef, learning_rate=learning_rate,
-            clip_range=clip_range)
+model = PPO(policy='MlpPolicy', env=env, verbose=1, tensorboard_log=logdir, ent_coef=ent_coef,
+            learning_rate=learning_rate, clip_range=clip_range, n_steps=n_steps, batch_size=batch_size,
+            n_epochs=n_epochs, gamma=gamma, gae_lambda=gae_lambda, vf_coef=vf_coef)
 
-TIMESTEPS = 100000
+TIMESTEPS = 1000000
 model.learn(total_timesteps=TIMESTEPS, callback=[MeticLogger(log_freq=log_freq)])
 model.save("ppo_IM")
 print(f"Train net profit: {env.net_profit}")
@@ -469,7 +552,16 @@ with summary_writer.as_default():
         obs, reward, done, info = env.step(action)
         print(f"Day: {day}")
         print(f"Action: {action}")
-        print(f"Obs: {obs}")
+        # print(f"Obs: {obs}")
+        print(f"Prod units {env.prod_units} Ware units {env.ware_units} Bloem units {env.bloem_units}")
+        print(f"choice: {env.choice}")
+        print(f"production order backlog: {env.production_order_backlog}")
+        print(f"warehouse order backlog: {env.warehouse_order_backlog}")
+        print(f"units moving prod bloem: {env.units_moving_prod_bloem}")
+        print(f"units moving ware bloem: {env.units_moving_ware_bloem}")
+        print(f"units moving prodware bloem: {env.units_moving_prodware_bloem_vector}")
+        print(f"Trucks prod bloem: {env.no_of_trucks_prod_bloem}")
+        print(f"Trucks ware bloem: {env.no_of_trucks_ware_bloem}")
 
         tf.summary.scalar('Production/Production units available', env.prod_units, step=day)
         tf.summary.scalar('Production/Action', env.prod_action, step=day)
@@ -498,61 +590,9 @@ with summary_writer.as_default():
         if done:
             print('DONE')
             obs = env.reset()
-    print(f"Net profit: {env.net_profit}")
-    print(f"Fill rate: {env.fill_rate}")
-
-'''
-summary_writer = tf.summary.create_file_writer(logdir)
-# Write the summary data for the line graphs
-with summary_writer.as_default():
-    episodes = 1
-    total_reward_vector = []
-    for episode in range(episodes):
-        # print("Episode: {}".format(episode+1))
-        obs = env.reset()
-        done = False
-        total_reward = 0
-        i = 1
-        while not done:
-            action, _state = model.predict(obs, deterministic=True)
-            print("Day {}".format(i))
-            print("Action: ", action)
-            obs, reward, done, info = env.step(action)
-            total_reward += reward
-            print('obs=', obs, 'reward=', reward, 'done=', done)
-            i += 1
-
-            tf.summary.scalar('Production/Production units available', env.prod_units, step=i)
-            tf.summary.scalar('Production/Action', env.prod_action, step=i)
-            tf.summary.scalar('Ware/Warehouse current demand', total_pred_jhb[i], step=i)
-            tf.summary.scalar('Ware/Action', env.ware_action, step=i)
-            tf.summary.scalar('Ware/Warehouse units available', env.ware_units, step=i)
-            tf.summary.scalar('Bloem/Bloem current demand', total_pred_bloem[i], step=i)
-            tf.summary.scalar('Bloem/Action', env.bloem_action, step=i)
-            tf.summary.scalar('Bloem/Bloem units available', env.bloem_units, step=i)
-            tf.summary.scalar('Trucks/Number of trucks in operation prod to ware', env.no_of_trucks_prod_ware, step=i)
-            tf.summary.scalar('Trucks/Number of trucks in operation prod to bloem', env.no_of_trucks_prod_bloem, step=i)
-            tf.summary.scalar('Trucks/Number of trucks in operation ware to bloem', env.no_of_trucks_ware_bloem, step=i)
-            tf.summary.scalar('Cost/Total manufacturing cost', env.total_manufacture_cost, step=i)
-            tf.summary.scalar('Cost/Total delivery cost', env.total_delivery_cost, step=i)
-            tf.summary.scalar('Cost/Total storage cost', env.total_storage_cost, step=i)
-            tf.summary.scalar('Cost/Overall cost', env.total_delivery_cost + env.total_manufacture_cost + env.total_storage_cost, step=i)
-            tf.summary.scalar('Profitability/Revenue', env.revenue_gained, step=i)
-            tf.summary.scalar('Profitability/Total cost', env.total_delivery_cost + env.total_manufacture_cost + env.total_storage_cost, step=i)
-            tf.summary.scalar('Profitability/Net profit', env.net_profit, step=i)
-            tf.summary.scalar('Units/Units satisfied', env.units_satisfied, step=i)
-            tf.summary.scalar('Units/Units unsatisfied', env.units_unsatisfied, step=i)
-            tf.summary.scalar('Order fulfilment rate', env.fill_rate, step=i)
-
-        print('Net profit =', env.net_profit)
-        print('Fill rate =', env.fill_rate)
-        print('Episode:{} Reward:{}'.format(episode + 1, total_reward))
-        total_reward_vector.append(total_reward)
-        obs = env.reset()
-
-    plt.plot(range(1, episodes + 1), total_reward_vector)
+    print(f"Test net profit: {env.net_profit}")
+    print(f"Test fill rate: {env.fill_rate}")
 
 end_time = time.time()
 elapsed_time = end_time - start_time
 print(f"Elapsed time: {elapsed_time:.2f} seconds")
-'''

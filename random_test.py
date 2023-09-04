@@ -507,3 +507,4 @@ for episode in range(1, episodes + 1):
               f'Fill_rate: {obs[6]}, Revenue_gained: {obs[7]}, Storage_cost: {obs[8]}, Net_profit: {obs[11]}')
         print(f'Reward: {reward}')
     print('Episode:{} Score:{}'.format(episode, score))
+
