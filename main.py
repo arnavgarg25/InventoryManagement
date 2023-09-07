@@ -81,7 +81,7 @@ class InventoryEnvironment(Env):
         self.ware_units = initial_ware_units  # state
         self.prod_units = initial_prod_units  # state
         # set days length
-        self.days_length = 347
+        self.days_length = 346
         # current day
         self.day = 5
         # set initial performance
@@ -115,7 +115,7 @@ class InventoryEnvironment(Env):
         self.ware_units = self.initial_ware_units
         self.prod_units = self.initial_prod_units
         # reset days length
-        self.days_length = 347
+        self.days_length = 346
         self.day = 5
         # reset initial performance
         self.units_satisfied = 0
@@ -125,6 +125,7 @@ class InventoryEnvironment(Env):
         self.total_storage_cost = 0
         self.total_manufacture_cost = 0
         self.total_delivery_cost = 0
+        self.net_profit = 0
 
         self.production_order_backlog = []
         self.warehouse_order_backlog = []
@@ -153,6 +154,8 @@ class InventoryEnvironment(Env):
     def step(self, action):
         self.current_revenue = 0
         self.current_cost = 0
+        self.current_units_sold = 0
+        self.current_units_available = 0
         reward = 0
 
         prod, ware, bloem = action
@@ -263,10 +266,12 @@ class InventoryEnvironment(Env):
         if self.bloem_units > self.demand_bloem[self.day]:
             self.bloem_units -= self.demand_bloem[self.day]
             self.units_satisfied += self.demand_bloem[self.day]
+            self.current_units_sold += self.demand_bloem[self.day]
             self.revenue_gained += self.demand_bloem[self.day] * self.selling_price
             self.current_revenue += self.demand_bloem[self.day] * self.selling_price
         else:
             self.units_satisfied += self.bloem_units
+            self.current_units_sold += self.bloem_units
             self.units_unsatisfied += self.demand_bloem[self.day] - self.bloem_units
             self.revenue_gained += self.bloem_units * self.selling_price
             self.current_revenue += self.bloem_units * self.selling_price
@@ -276,10 +281,12 @@ class InventoryEnvironment(Env):
         if self.ware_units > self.demand_ware[self.day]:
             self.ware_units -= self.demand_ware[self.day]
             self.units_satisfied += self.demand_ware[self.day]
+            self.current_units_sold += self.demand_ware[self.day]
             self.revenue_gained += self.demand_ware[self.day] * self.selling_price
             self.current_revenue += self.demand_ware[self.day] * self.selling_price
         else:
             self.units_satisfied += self.ware_units
+            self.current_units_sold += self.ware_units
             self.units_unsatisfied += self.demand_ware[self.day] - self.ware_units
             self.revenue_gained += self.ware_units * self.selling_price
             self.current_revenue += self.ware_units * self.selling_price
@@ -299,9 +306,9 @@ class InventoryEnvironment(Env):
         self.current_cost += self.prod_units * self.prod_storage_cost
 
         # 8) calculate reward
-        reward += self.current_revenue - self.current_cost  # (Profit-based reward)
+        reward += self.current_revenue - self.current_cost  # 1(Profit-based reward)
 
-        if self.fill_rate > 90:  # (service-based reward)
+        if self.fill_rate > 90:  # 2(service-based reward)
             reward += 90
         elif self.fill_rate > 80:
             reward += 80
@@ -328,6 +335,9 @@ class InventoryEnvironment(Env):
         target_min = -10
         target_max = 10
         reward = (reward - min_reward) / (max_reward - min_reward) * (target_max - target_min) + target_min
+
+        # 3(Maximizing units sold while minimizing units available)
+        #reward += self.current_units_sold - (self.bloem_units + self.ware_units + self.prod_units)
 
         # check if days are complete
         if self.days_length <= 0:
@@ -407,7 +417,7 @@ class MeticLogger(BaseCallback):
             for key in stats.keys():
                 self.logger.record(key, stats[key])
 '''
-# HYPERPARAMETER TUNING START
+# PPO HYPERPARAMETER TUNING START
 param_grid = {
     'ent_coef': [0, 0.005, 0.01, 0.05, 0.1, 0.5],
     'learning_rate': [0.0001, 0.001, 0.003, 0.005, 0.01, 0.1],
@@ -477,7 +487,7 @@ for _ in range(num_iterations):
         best_hyperparams = hyperparams
 print("Best Hyperparameters:", best_hyperparams)
 print("Best Mean Reward:", best_mean_reward)
-# HYPERPARAMETER TUNING END
+# PPO HYPERPARAMETER TUNING END
 '''
 env = InventoryEnvironment(initial_bloem_units=initial_bloem_units, initial_ware_units=initial_ware_units,
                                initial_prod_units=initial_prod_units, bloem_storage_capacity=bloem_storage_capacity,
@@ -519,35 +529,53 @@ if not os.path.exists(models_dir):
 if not os.path.exists(logdir):
     os.makedirs(logdir)
 
+TIMESTEPS = 100000
+log_freq = 100
 
-ent_coef = 0.1  # 0 to 0.01
-learning_rate = 0.003  # 0.003 to 5e-6
-clip_range = 0.2  # 0.1,0.2,0.3
-n_steps = 2048  # 32 to 5000
+''''# PPO model
+ent_coef = 0.1  # 0 to 0.01 [0.005, 0.01, 0.05, 0.1] default=0.1
+learning_rate = 0.003  # 0.003 to 5e-6 [0.0001, 0.001, 0.003, 0.005, 0.01] default=0.003
+clip_range = 0.2  # 0.1,0.2,0.3 [0.1, 0.2] default=0.2
+n_steps = 2048  # 32 to 5000 [32, 128, 256, 512, 2048, 5000] default=2048
 batch_size = 64  # 4 to 4096 [32, 64, 128, 4096] default=64
 n_epochs = 10  # 3 to 30 [3, 5, 8, 10] default=10
 gamma = 0.99  # 0.8 to 0.9997 [0.9, 0.95, 0.99] default=0.99
 gae_lambda = 0.95  # 0.9 to 1 [0.95, 1] default=0.95
 vf_coef = 0.5  # 0.5, 1 [0.25, 0.5, 0.75] default=0.5
-log_freq = 100
 
 model = PPO(policy='MlpPolicy', env=env, verbose=1, tensorboard_log=logdir, ent_coef=ent_coef,
             learning_rate=learning_rate, clip_range=clip_range, n_steps=n_steps, batch_size=batch_size,
             n_epochs=n_epochs, gamma=gamma, gae_lambda=gae_lambda, vf_coef=vf_coef)
 
-TIMESTEPS = 1000000
 model.learn(total_timesteps=TIMESTEPS, callback=[MeticLogger(log_freq=log_freq)])
 model.save("ppo_IM")
 print(f"Train net profit: {env.net_profit}")
 print(f"Train fill rate: {env.fill_rate}")
-loaded_model = PPO.load("ppo_IM")
+loaded_model = PPO.load("ppo_IM")'''
+
+# DDPG model
+learning_rate = 0.001  # [1e-4, 1e-3, 1e-2],
+buffer_size = 1000000  # [int(1e4), int(1e5), int(1e6)],
+learning_starts = 100
+batch_size = 100  # [32, 64, 128],
+tau = 0.005  # [0.001, 0.005, 0.01]
+gamma = 0.99  # [0.95, 0.99],
+
+model = DDPG(policy='MlpPolicy', env=env, verbose=1, tensorboard_log=logdir, learning_rate=learning_rate,
+             buffer_size=buffer_size, learning_starts=learning_starts, batch_size=batch_size, tau=tau, gamma=gamma)
+
+model.learn(total_timesteps=TIMESTEPS, callback=[MeticLogger(log_freq=log_freq)])
+model.save("ddpg_IM")
+print(f"Train net profit: {env.net_profit}")
+print(f"Train fill rate: {env.fill_rate}")
+loaded_model = DDPG.load("ddpg_IM")
 
 # Evaluate the loaded model
 summary_writer = tf.summary.create_file_writer(logdir)
 with summary_writer.as_default():
     obs = env.reset()
     done = False
-    for day in range(347):
+    for day in range(346):
         action, _state = loaded_model.predict(obs)
         obs, reward, done, info = env.step(action)
         print(f"Day: {day}")
