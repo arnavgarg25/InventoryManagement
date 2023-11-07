@@ -134,7 +134,7 @@ class InventoryEnvironment(gym.Env):
         # self.action_space = MultiDiscrete([10,10,10])
 
         # define observation space
-        self.num_obs_points = 94
+        self.num_obs_points = 97
         self.observation_space = Box(low=0, high=10000000, shape=(self.num_obs_points,), dtype=np.float32)
 
         # set starting inventory
@@ -153,6 +153,21 @@ class InventoryEnvironment(gym.Env):
         # set initial performance
         self.units_satisfied = 0
         self.units_unsatisfied = 0
+        self.current_units_unsatisfied = 0
+        self.current_bloem_units_unsatisfied = 0
+        self.current_durb_units_unsatisfied = 0
+        self.current_EL_units_unsatisfied = 0
+        self.current_CT_units_unsatisfied = 0
+        self.current_pret_units_unsatisfied = 0
+        self.current_ware_units_unsatisfied = 0
+
+        self.current_bloem_units_satisfied = 0
+        self.current_CT_units_satisfied = 0
+        self.current_EL_units_satisfied = 0
+        self.current_pret_units_satisfied = 0
+        self.current_durb_units_satisfied = 0
+        self.current_ware_units_satisfied = 0
+
         self.fill_rate = 0
         self.revenue_gained = 0
         self.net_profit = 0
@@ -185,6 +200,7 @@ class InventoryEnvironment(gym.Env):
         self.net_profit_CT = 0
         self.net_profit_pret = 0
 
+        self.prod_ware_order_backlog = []
         self.bloem_production_order_backlog = []
         self.bloem_warehouse_order_backlog = []
         self.durb_production_order_backlog = []
@@ -253,6 +269,13 @@ class InventoryEnvironment(gym.Env):
         self.pret_units.append([initial_pret_units, product_lifespan])
 
         self.obsolete_inventory = 0
+        self.units_exp_1day = 0
+        self.units_exp_2day = 0
+        self.units_exp_3day = 0
+
+        self.current_revenue = 0
+        self.current_cost = 0
+        self.reward = 0
 
         # Rest of your environment initialization
         super(InventoryEnvironment, self).__init__()
@@ -273,6 +296,21 @@ class InventoryEnvironment(gym.Env):
         # reset initial performance
         self.units_satisfied = 0
         self.units_unsatisfied = 0
+        self.current_units_unsatisfied = 0
+        self.current_bloem_units_unsatisfied = 0
+        self.current_durb_units_unsatisfied = 0
+        self.current_EL_units_unsatisfied = 0
+        self.current_CT_units_unsatisfied = 0
+        self.current_pret_units_unsatisfied = 0
+        self.current_ware_units_unsatisfied = 0
+
+        self.current_bloem_units_satisfied = 0
+        self.current_CT_units_satisfied = 0
+        self.current_EL_units_satisfied = 0
+        self.current_pret_units_satisfied = 0
+        self.current_durb_units_satisfied = 0
+        self.current_ware_units_satisfied = 0
+
         self.fill_rate = 0
         self.revenue_gained = 0
         self.total_storage_cost = 0
@@ -305,7 +343,6 @@ class InventoryEnvironment(gym.Env):
         self.net_profit_CT = 0
         self.net_profit_pret = 0
 
-        self.prod_ware_order_backlog = []
         self.prod_ware_order_backlog = []
         self.bloem_production_order_backlog = []
         self.bloem_warehouse_order_backlog = []
@@ -373,16 +410,25 @@ class InventoryEnvironment(gym.Env):
         self.CT_units.append([initial_CT_units, product_lifespan])
         self.pret_units = []
         self.pret_units.append([initial_pret_units, product_lifespan])
+
         self.obsolete_inventory = 0
+        self.units_exp_1day = 0
+        self.units_exp_2day = 0
+        self.units_exp_3day = 0
+
+        self.current_revenue = 0
+        self.current_cost = 0
+        self.reward = 0
 
         obs = [self.prod_units_sum, self.ware_units_sum, self.bloem_units_sum, self.durb_units_sum, self.EL_units_sum,
-               self.CT_units_sum, self.pret_units_sum, self.choice_bloem, self.choice_durb, self.choice_EL, self.choice_CT, self.choice_pret,
-               self.no_of_trucks_prod_ware, self.no_of_trucks_prod_bloem, self.no_of_trucks_ware_bloem,
+               self.CT_units_sum, self.pret_units_sum, self.choice_bloem, self.choice_durb, self.choice_EL, self.choice_CT,
+               self.choice_pret, self.no_of_trucks_prod_ware, self.no_of_trucks_prod_bloem, self.no_of_trucks_ware_bloem,
                self.no_of_trucks_prod_durb, self.no_of_trucks_ware_durb, self.no_of_trucks_prod_EL, self.no_of_trucks_ware_EL,
                self.no_of_trucks_prod_CT, self.no_of_trucks_ware_CT, self.no_of_trucks_prod_pret, self.no_of_trucks_ware_pret,
                self.units_transit_prod_ware, self.units_transit_prod_bloem, self.units_transit_ware_bloem,
                self.units_transit_prod_durb, self.units_transit_ware_durb, self.units_transit_prod_EL, self.units_transit_ware_EL,
-               self.units_transit_prod_CT, self.units_transit_ware_CT, self.units_transit_prod_pret, self.units_transit_ware_pret]
+               self.units_transit_prod_CT, self.units_transit_ware_CT, self.units_transit_prod_pret, self.units_transit_ware_pret,
+               self.units_exp_1day, self.units_exp_2day, self.units_exp_3day]
         bloem_forecast = self.total_pred_bloem[self.day-5:self.day + 5]
         obs.extend(bloem_forecast)
         ware_forecast = self.total_pred_jhb[self.day-5:self.day + 5]
@@ -402,7 +448,15 @@ class InventoryEnvironment(gym.Env):
         self.current_cost = 0
         self.current_units_sold = 0
         self.current_units_available = 0
+        self.current_units_unsatisfied = 0
+        self.current_bloem_units_satisfied = 0
+        self.current_CT_units_satisfied = 0
+        self.current_EL_units_satisfied = 0
+        self.current_pret_units_satisfied = 0
+        self.current_durb_units_satisfied = 0
+        self.current_ware_units_satisfied = 0
         reward = 0
+        self.reward = 0
 
         self.prod_units_sum = 0
         for i in range(len(self.prod_units)):
@@ -452,7 +506,7 @@ class InventoryEnvironment(gym.Env):
             del self.produce_vector[0]
 
         # 2) Ware ordering quantity action
-        self.ware_action = ware * 15000 #reduce this #ware units available 0
+        self.ware_action = ware * 28000 #reduce this #ware units available 0
         self.no_of_trucks_prod_ware = 0
         self.units_moving_prod_ware = []
         self.units_transit_prod_ware = 0
@@ -601,7 +655,7 @@ class InventoryEnvironment(gym.Env):
             self.bloem_units_sum += self.bloem_units[i][0]
 
         # 4) Durb ordering quantity action
-        self.durb_action = durb * 10000
+        self.durb_action = durb * 5000
 
         # Determine whether durb order is from prod or ware
         self.no_of_trucks_prod_durb = 0
@@ -1010,6 +1064,7 @@ class InventoryEnvironment(gym.Env):
                 self.bloem_units_sum += self.bloem_units[i][0]
 
             self.units_satisfied += self.demand_bloem[self.day]
+            self.current_bloem_units_satisfied += self.demand_bloem[self.day]
             self.units_satisfied_bloem += self.demand_bloem[self.day]
             self.current_units_sold += self.demand_bloem[self.day]
             self.revenue_gained += self.demand_bloem[self.day] * self.selling_price
@@ -1017,10 +1072,13 @@ class InventoryEnvironment(gym.Env):
             self.net_profit_bloem += self.demand_bloem[self.day] * self.selling_price
         else:
             self.units_satisfied += self.bloem_units_sum
+            self.current_bloem_units_satisfied += self.bloem_units_sum
             self.units_satisfied_bloem += self.bloem_units_sum
             self.current_units_sold += self.bloem_units_sum
             self.units_unsatisfied += self.demand_bloem[self.day] - self.bloem_units_sum
             self.units_unsatisfied_bloem += self.demand_bloem[self.day] - self.bloem_units_sum
+            self.current_units_unsatisfied += self.demand_bloem[self.day] - self.bloem_units_sum
+            self.current_bloem_units_unsatisfied = self.demand_bloem[self.day] - self.bloem_units_sum
             self.revenue_gained += self.bloem_units_sum * self.selling_price
             self.current_revenue += self.bloem_units_sum * self.selling_price
             self.net_profit_bloem += self.bloem_units_sum * self.selling_price
@@ -1045,6 +1103,7 @@ class InventoryEnvironment(gym.Env):
                 self.durb_units_sum += self.durb_units[i][0]
 
             self.units_satisfied += self.demand_durb[self.day]
+            self.current_durb_units_satisfied += self.demand_durb[self.day]
             self.units_satisfied_durb += self.demand_durb[self.day]
             self.current_units_sold += self.demand_durb[self.day]
             self.revenue_gained += self.demand_durb[self.day] * self.selling_price
@@ -1052,10 +1111,13 @@ class InventoryEnvironment(gym.Env):
             self.net_profit_durb += self.demand_durb[self.day] * self.selling_price
         else:
             self.units_satisfied += self.durb_units_sum
+            self.current_durb_units_satisfied += self.durb_units_sum
             self.units_satisfied_durb += self.durb_units_sum
             self.current_units_sold += self.durb_units_sum
             self.units_unsatisfied += self.demand_durb[self.day] - self.durb_units_sum
             self.units_unsatisfied_durb += self.demand_durb[self.day] - self.durb_units_sum
+            self.current_units_unsatisfied += self.demand_durb[self.day] - self.durb_units_sum
+            self.current_durb_units_unsatisfied = self.demand_durb[self.day] - self.durb_units_sum
             self.revenue_gained += self.durb_units_sum * self.selling_price
             self.current_revenue += self.durb_units_sum * self.selling_price
             self.net_profit_durb += self.durb_units_sum * self.selling_price
@@ -1080,6 +1142,7 @@ class InventoryEnvironment(gym.Env):
                 self.EL_units_sum += self.EL_units[i][0]
 
             self.units_satisfied += self.demand_EL[self.day]
+            self.current_EL_units_satisfied += self.demand_EL[self.day]
             self.units_satisfied_EL += self.demand_EL[self.day]
             self.current_units_sold += self.demand_EL[self.day]
             self.revenue_gained += self.demand_EL[self.day] * self.selling_price
@@ -1087,10 +1150,13 @@ class InventoryEnvironment(gym.Env):
             self.net_profit_EL += self.demand_EL[self.day] * self.selling_price
         else:
             self.units_satisfied += self.EL_units_sum
+            self.current_EL_units_satisfied += self.EL_units_sum
             self.units_satisfied_EL += self.EL_units_sum
             self.current_units_sold += self.EL_units_sum
             self.units_unsatisfied += self.demand_EL[self.day] - self.EL_units_sum
             self.units_unsatisfied_EL += self.demand_EL[self.day] - self.EL_units_sum
+            self.current_units_unsatisfied += self.demand_EL[self.day] - self.EL_units_sum
+            self.current_EL_units_unsatisfied = self.demand_EL[self.day] - self.EL_units_sum
             self.revenue_gained += self.EL_units_sum * self.selling_price
             self.current_revenue += self.EL_units_sum * self.selling_price
             self.net_profit_EL += self.EL_units_sum * self.selling_price
@@ -1115,6 +1181,7 @@ class InventoryEnvironment(gym.Env):
                 self.CT_units_sum += self.CT_units[i][0]
 
             self.units_satisfied += self.demand_CT[self.day]
+            self.current_CT_units_satisfied += self.demand_CT[self.day]
             self.units_satisfied_CT += self.demand_CT[self.day]
             self.current_units_sold += self.demand_CT[self.day]
             self.revenue_gained += self.demand_CT[self.day] * self.selling_price
@@ -1122,10 +1189,13 @@ class InventoryEnvironment(gym.Env):
             self.net_profit_CT += self.demand_CT[self.day] * self.selling_price
         else:
             self.units_satisfied += self.CT_units_sum
+            self.current_CT_units_satisfied += self.CT_units_sum
             self.units_satisfied_CT += self.CT_units_sum
             self.current_units_sold += self.CT_units_sum
             self.units_unsatisfied += self.demand_CT[self.day] - self.CT_units_sum
             self.units_unsatisfied_CT += self.demand_CT[self.day] - self.CT_units_sum
+            self.current_units_unsatisfied += self.demand_CT[self.day] - self.CT_units_sum
+            self.current_CT_units_unsatisfied = self.demand_CT[self.day] - self.CT_units_sum
             self.revenue_gained += self.CT_units_sum * self.selling_price
             self.current_revenue += self.CT_units_sum * self.selling_price
             self.net_profit_CT += self.CT_units_sum * self.selling_price
@@ -1150,6 +1220,7 @@ class InventoryEnvironment(gym.Env):
                 self.pret_units_sum += self.pret_units[i][0]
 
             self.units_satisfied += self.demand_pret[self.day]
+            self.current_pret_units_satisfied += self.demand_pret[self.day]
             self.units_satisfied_pret += self.demand_pret[self.day]
             self.current_units_sold += self.demand_pret[self.day]
             self.revenue_gained += self.demand_pret[self.day] * self.selling_price
@@ -1157,10 +1228,13 @@ class InventoryEnvironment(gym.Env):
             self.net_profit_pret += self.demand_pret[self.day] * self.selling_price
         else:
             self.units_satisfied += self.pret_units_sum
+            self.current_pret_units_satisfied += self.pret_units_sum
             self.units_satisfied_pret += self.pret_units_sum
             self.current_units_sold += self.pret_units_sum
             self.units_unsatisfied += self.demand_pret[self.day] - self.pret_units_sum
             self.units_unsatisfied_pret += self.demand_pret[self.day] - self.pret_units_sum
+            self.current_units_unsatisfied += self.demand_pret[self.day] - self.pret_units_sum
+            self.current_pret_units_unsatisfied = self.demand_pret[self.day] - self.pret_units_sum
             self.revenue_gained += self.pret_units_sum * self.selling_price
             self.current_revenue += self.pret_units_sum * self.selling_price
             self.net_profit_pret += self.pret_units_sum * self.selling_price
@@ -1185,6 +1259,7 @@ class InventoryEnvironment(gym.Env):
                 self.ware_units_sum += self.ware_units[i][0]
 
             self.units_satisfied += self.demand_ware[self.day]
+            self.current_ware_units_satisfied += self.demand_ware[self.day]
             self.units_satisfied_ware += self.demand_ware[self.day]
             self.current_units_sold += self.demand_ware[self.day]
             self.revenue_gained += self.demand_ware[self.day] * self.selling_price
@@ -1192,10 +1267,13 @@ class InventoryEnvironment(gym.Env):
             self.net_profit_ware += self.demand_ware[self.day] * self.selling_price
         else:
             self.units_satisfied += self.ware_units_sum
+            self.current_pret_units_satisfied += self.ware_units_sum
             self.units_satisfied_ware += self.ware_units_sum
             self.current_units_sold += self.ware_units_sum
             self.units_unsatisfied += self.demand_ware[self.day] - self.ware_units_sum
             self.units_unsatisfied_ware += self.demand_ware[self.day] - self.ware_units_sum
+            self.current_units_unsatisfied += self.demand_ware[self.day] - self.ware_units_sum
+            self.current_ware_units_unsatisfied = self.demand_ware[self.day] - self.ware_units_sum
             self.revenue_gained += self.ware_units_sum * self.selling_price
             self.current_revenue += self.ware_units_sum * self.selling_price
             self.net_profit_ware += self.ware_units_sum * self.selling_price
@@ -1210,7 +1288,17 @@ class InventoryEnvironment(gym.Env):
                 self.prod_units[i] = []
             else:
                 self.prod_units[i][1] -= 1
+
         self.prod_units = [x for x in self.prod_units if x != []]
+
+        for i in range(len(self.prod_units)):
+            if self.prod_units[i][1] == 1:
+                self.units_exp_1day += self.prod_units[i][0]
+            elif self.prod_units[i][1] == 2:
+                self.units_exp_2day += self.prod_units[i][0]
+            elif self.prod_units[i][1] == 3:
+                self.units_exp_3day += self.prod_units[i][0]
+
         self.prod_units_sum = 0
         for i in range(len(self.prod_units)):
             self.prod_units_sum += self.prod_units[i][0]
@@ -1222,7 +1310,17 @@ class InventoryEnvironment(gym.Env):
                 self.ware_units[i] = []
             else:
                 self.ware_units[i][1] -= 1
+
         self.ware_units = [x for x in self.ware_units if x != []]
+
+        for i in range(len(self.ware_units)):
+            if self.ware_units[i][1] == 1:
+                self.units_exp_1day += self.ware_units[i][0]
+            elif self.ware_units[i][1] == 2:
+                self.units_exp_2day += self.ware_units[i][0]
+            elif self.ware_units[i][1] == 3:
+                self.units_exp_3day += self.ware_units[i][0]
+
         self.ware_units_sum = 0
         for i in range(len(self.ware_units)):
             self.ware_units_sum += self.ware_units[i][0]
@@ -1234,7 +1332,17 @@ class InventoryEnvironment(gym.Env):
                 self.bloem_units[i] = []
             else:
                 self.bloem_units[i][1] -= 1
+
         self.bloem_units = [x for x in self.bloem_units if x != []]
+
+        for i in range(len(self.bloem_units)):
+            if self.bloem_units[i][1] == 1:
+                self.units_exp_1day += self.bloem_units[i][0]
+            elif self.bloem_units[i][1] == 2:
+                self.units_exp_2day += self.bloem_units[i][0]
+            elif self.bloem_units[i][1] == 3:
+                self.units_exp_3day += self.bloem_units[i][0]
+
         self.bloem_units_sum = 0
         for i in range(len(self.bloem_units)):
             self.bloem_units_sum += self.bloem_units[i][0]
@@ -1246,7 +1354,17 @@ class InventoryEnvironment(gym.Env):
                 self.durb_units[i] = []
             else:
                 self.durb_units[i][1] -= 1
+
         self.durb_units = [x for x in self.durb_units if x != []]
+
+        for i in range(len(self.durb_units)):
+            if self.durb_units[i][1] == 1:
+                self.units_exp_1day += self.durb_units[i][0]
+            elif self.durb_units[i][1] == 2:
+                self.units_exp_2day += self.durb_units[i][0]
+            elif self.durb_units[i][1] == 3:
+                self.units_exp_3day += self.durb_units[i][0]
+
         self.durb_units_sum = 0
         for i in range(len(self.durb_units)):
             self.durb_units_sum += self.durb_units[i][0]
@@ -1258,7 +1376,17 @@ class InventoryEnvironment(gym.Env):
                 self.EL_units[i] = []
             else:
                 self.EL_units[i][1] -= 1
+
         self.EL_units = [x for x in self.EL_units if x != []]
+
+        for i in range(len(self.EL_units)):
+            if self.EL_units[i][1] == 1:
+                self.units_exp_1day += self.EL_units[i][0]
+            elif self.EL_units[i][1] == 2:
+                self.units_exp_2day += self.EL_units[i][0]
+            elif self.EL_units[i][1] == 3:
+                self.units_exp_3day += self.EL_units[i][0]
+
         self.EL_units_sum = 0
         for i in range(len(self.EL_units)):
             self.EL_units_sum += self.EL_units[i][0]
@@ -1270,7 +1398,17 @@ class InventoryEnvironment(gym.Env):
                 self.CT_units[i] = []
             else:
                 self.CT_units[i][1] -= 1
+
         self.CT_units = [x for x in self.CT_units if x != []]
+
+        for i in range(len(self.CT_units)):
+            if self.CT_units[i][1] == 1:
+                self.units_exp_1day += self.CT_units[i][0]
+            elif self.CT_units[i][1] == 2:
+                self.units_exp_2day += self.CT_units[i][0]
+            elif self.CT_units[i][1] == 3:
+                self.units_exp_3day += self.CT_units[i][0]
+
         self.CT_units_sum = 0
         for i in range(len(self.CT_units)):
             self.CT_units_sum += self.CT_units[i][0]
@@ -1282,7 +1420,17 @@ class InventoryEnvironment(gym.Env):
                 self.pret_units[i] = []
             else:
                 self.pret_units[i][1] -= 1
+
         self.pret_units = [x for x in self.pret_units if x != []]
+
+        for i in range(len(self.pret_units)):
+            if self.pret_units[i][1] == 1:
+                self.units_exp_1day += self.pret_units[i][0]
+            elif self.pret_units[i][1] == 2:
+                self.units_exp_2day += self.pret_units[i][0]
+            elif self.pret_units[i][1] == 3:
+                self.units_exp_3day += self.pret_units[i][0]
+
         self.pret_units_sum = 0
         for i in range(len(self.pret_units)):
             self.pret_units_sum += self.pret_units[i][0]
@@ -1323,6 +1471,85 @@ class InventoryEnvironment(gym.Env):
 
         # 17) calculate reward
         # 1(Profit-based reward)
+        '''
+        reward1 = -self.prod_units_sum
+        min_reward = -self.prod_storage_capacity
+        max_reward = 0
+        target_min = -1000
+        target_max = 0
+        reward1 = (reward1 - min_reward) / (max_reward - min_reward) * (target_max - target_min) + target_min
+        reward += reward1
+
+        reward2 = -self.ware_units_sum
+        min_reward = -self.ware_storage_capacity
+        max_reward = 0
+        target_min = -1000
+        target_max = 0
+        reward2 = (reward2 - min_reward) / (max_reward - min_reward) * (target_max - target_min) + target_min
+        reward += reward2
+
+        reward3 = -self.bloem_units_sum
+        min_reward = -self.bloem_storage_capacity
+        max_reward = 0
+        target_min = -1000
+        target_max = 0
+        reward3 = (reward3 - min_reward) / (max_reward - min_reward) * (target_max - target_min) + target_min
+        reward += reward3
+
+        reward4 = -self.durb_units_sum
+        min_reward = -self.durb_storage_capacity
+        max_reward = 0
+        target_min = -1000
+        target_max = 0
+        reward4 = (reward4 - min_reward) / (max_reward - min_reward) * (target_max - target_min) + target_min
+        reward += reward4
+
+        reward5 = -self.EL_units_sum
+        min_reward = -self.EL_storage_capacity
+        max_reward = 0
+        target_min = -1000
+        target_max = 0
+        reward5 = (reward5 - min_reward) / (max_reward - min_reward) * (target_max - target_min) + target_min
+        reward += reward5
+
+        reward6 = -self.CT_units_sum
+        min_reward = -self.CT_storage_capacity
+        max_reward = 0
+        target_min = -1000
+        target_max = 0
+        reward6 = (reward6 - min_reward) / (max_reward - min_reward) * (target_max - target_min) + target_min
+        reward += reward6
+
+        reward7 = -self.pret_units_sum
+        min_reward = -self.pret_storage_capacity
+        max_reward = 0
+        target_min = -1000
+        target_max = 0
+        reward7 = (reward7 - min_reward) / (max_reward - min_reward) * (target_max - target_min) + target_min
+        reward += reward7
+        
+        reward += -self.prod_units_sum
+        reward += -self.ware_units_sum
+        reward += -self.bloem_units_sum
+        reward += -self.durb_units_sum
+        reward += -self.EL_units_sum
+        reward += -self.CT_units_sum
+        reward += -self.pret_units_sum
+        reward += -self.current_units_unsatisfied
+        reward += self.current_bloem_units_satisfied
+        reward += self.current_CT_units_satisfied
+        reward += self.current_EL_units_satisfied
+        reward += self.current_durb_units_satisfied
+        reward += self.current_pret_units_satisfied
+        reward += self.current_ware_units_satisfied
+        '''
+        #reward += -self.current_bloem_units_unsatisfied
+        #reward += -self.current_durb_units_unsatisfied
+        #reward += -self.current_EL_units_unsatisfied
+        #reward += -self.current_CT_units_unsatisfied
+        #reward += -self.current_pret_units_unsatisfied
+        #reward += -self.current_ware_units_unsatisfied
+
         reward += self.current_revenue - self.current_cost
 
         if self.fill_rate > 90:  # 2(service-based reward)
@@ -1346,18 +1573,34 @@ class InventoryEnvironment(gym.Env):
         else:
             reward += -100
 
+        reward -= self.bloem_units_sum
+        reward += self.current_bloem_units_satisfied
+        reward -= self.current_bloem_units_unsatisfied
+        reward -= self.CT_units_sum
+        reward += self.current_CT_units_satisfied
+        reward -= self.current_CT_units_unsatisfied
+        reward -= self.durb_units_sum
+        reward += self.current_durb_units_satisfied
+        reward -= self.current_durb_units_unsatisfied
+        reward -= self.EL_units_sum
+        reward += self.current_EL_units_satisfied
+        reward -= self.current_EL_units_unsatisfied
+        reward -= self.pret_units_sum
+        reward += self.current_pret_units_satisfied
+        reward -= self.current_pret_units_unsatisfied
+        #reward -= self.ware_units_sum
+        #reward += self.current_ware_units_satisfied
+        reward -= self.current_ware_units_unsatisfied
+        reward -= self.prod_units_sum/1000
+
         # Normalize reward
-        min_reward = -100000
-        max_reward = 100000
-        target_min = -10
-        target_max = 10
+        min_reward = -2000000
+        max_reward = 1000000
+        target_min = -1000
+        target_max = 1000
         reward = (reward - min_reward) / (max_reward - min_reward) * (target_max - target_min) + target_min
 
-        # 3(Maximizing units sold while minimizing units available)
-        #reward += self.current_units_sold - (self.bloem_units_sum + self.ware_units_sum + self.prod_units_sum)
-        #reward -= self.bloem_units_sum
-        #reward -= self.ware_units_sum
-        #reward -= self.prod_units_sum
+        self.reward = reward
 
         # check if days are complete
         if self.days_length <= 0:
@@ -1427,7 +1670,8 @@ class InventoryEnvironment(gym.Env):
                self.no_of_trucks_prod_CT, self.no_of_trucks_ware_CT, self.no_of_trucks_prod_pret, self.no_of_trucks_ware_pret,
                self.units_transit_prod_ware, self.units_transit_prod_bloem, self.units_transit_ware_bloem,
                self.units_transit_prod_durb, self.units_transit_ware_durb, self.units_transit_prod_EL, self.units_transit_ware_EL,
-               self.units_transit_prod_CT, self.units_transit_ware_CT, self.units_transit_prod_pret, self.units_transit_ware_pret]
+               self.units_transit_prod_CT, self.units_transit_ware_CT, self.units_transit_prod_pret, self.units_transit_ware_pret,
+               self.units_exp_1day, self.units_exp_2day, self.units_exp_3day]
         bloem_forecast = self.total_pred_bloem[self.day-5:self.day + 5]
         obs.extend(bloem_forecast)
         ware_forecast = self.total_pred_jhb[self.day-5:self.day + 5]
@@ -1470,6 +1714,7 @@ class MeticLogger(BaseCallback):
             # add metrics that are on a timestep basis
             stats = {'Training/net_profit': self.training_env.get_attr("net_profit")[0],
                      'Training/fill_rate': self.training_env.get_attr("fill_rate")[0],
+                     'Training/reward': self.training_env.get_attr("reward")[0],
                      'Training/prod_units': self.training_env.get_attr("prod_units_sum")[0],
                      'Training/ware_units': self.training_env.get_attr("ware_units_sum")[0],
                      'Training/bloem_units': self.training_env.get_attr("bloem_units_sum")[0],
@@ -1560,7 +1805,7 @@ def make_env(env_class):
         return env
     return _init
 
-TIMESTEPS = 1000000
+TIMESTEPS = 2000000
 log_freq = 100
 n_envs = 8
 
@@ -1614,21 +1859,29 @@ if __name__ == "__main__":
             tf.summary.scalar('Ware/Warehouse current demand', total_pred_jhb[day], step=day)
             tf.summary.scalar('Ware/Action', env.ware_action, step=day)
             tf.summary.scalar('Ware/Warehouse units available', env.ware_units_sum, step=day)
+            tf.summary.scalar('Ware/Ware fill rate', env.fill_rate_ware, step=day)
             tf.summary.scalar('Bloem/Bloem current demand', total_pred_bloem[day], step=day)
             tf.summary.scalar('Bloem/Action', env.bloem_action, step=day)
             tf.summary.scalar('Bloem/Bloem units available', env.bloem_units_sum, step=day)
+            tf.summary.scalar('Bloem/Bloem fill rate', env.fill_rate_bloem, step=day)
+            tf.summary.scalar('Bloem/bloem Current units satisfied', env.current_bloem_units_satisfied, step=day)
+            tf.summary.scalar('Bloem/bloem Current units unsatisfied', env.current_bloem_units_unsatisfied, step=day)
             tf.summary.scalar('Durb/Durb current demand', total_pred_durb[day], step=day)
             tf.summary.scalar('Durb/Action', env.durb_action, step=day)
             tf.summary.scalar('Durb/Durb units available', env.durb_units_sum, step=day)
+            tf.summary.scalar('Durb/Durb fill rate', env.fill_rate_durb, step=day)
             tf.summary.scalar('EL/EL current demand', total_pred_EL[day], step=day)
             tf.summary.scalar('EL/Action', env.EL_action, step=day)
             tf.summary.scalar('EL/EL units available', env.EL_units_sum, step=day)
+            tf.summary.scalar('EL/EL fill rate', env.fill_rate_EL, step=day)
             tf.summary.scalar('CT/CT current demand', total_pred_CT[day], step=day)
             tf.summary.scalar('CT/Action', env.CT_action, step=day)
             tf.summary.scalar('CT/CT units available', env.CT_units_sum, step=day)
+            tf.summary.scalar('CT/CT fill rate', env.fill_rate_CT, step=day)
             tf.summary.scalar('pret/pret current demand', total_pred_pret[day], step=day)
             tf.summary.scalar('pret/Action', env.pret_action, step=day)
             tf.summary.scalar('pret/pret units available', env.pret_units_sum, step=day)
+            tf.summary.scalar('pret/pret fill rate', env.fill_rate_pret, step=day)
             tf.summary.scalar('Trucks/Number of trucks in operation prod to ware', env.no_of_trucks_prod_ware, step=day)
             tf.summary.scalar('Trucks/Number of trucks in operation prod to bloem', env.no_of_trucks_prod_bloem, step=day)
             tf.summary.scalar('Trucks/Number of trucks in operation ware to bloem', env.no_of_trucks_ware_bloem,step=day)
@@ -1647,6 +1900,7 @@ if __name__ == "__main__":
             tf.summary.scalar('Profitability/Revenue', env.revenue_gained, step=day)
             tf.summary.scalar('Profitability/Total cost', env.total_delivery_cost + env.total_manufacture_cost + env.total_storage_cost, step=day)
             tf.summary.scalar('Profitability/Net profit', env.net_profit, step=day)
+            tf.summary.scalar('Profitability/Reward', env.reward, step=day)
             tf.summary.scalar('Units/Units satisfied', env.units_satisfied, step=day)
             tf.summary.scalar('Units/Units unsatisfied', env.units_unsatisfied, step=day)
             tf.summary.scalar('Units/obsolete inventory', env.obsolete_inventory, step=day)
@@ -1654,6 +1908,7 @@ if __name__ == "__main__":
             tf.summary.scalar('Current/Current revenue', env.current_revenue, step=day)
             tf.summary.scalar('Current/Current cost', env.current_cost, step=day)
             tf.summary.scalar('Current/Current profit', env.current_revenue - env.current_cost, step=day)
+            tf.summary.scalar('Current/Current units unsatisfied', env.current_units_unsatisfied, step=day)
 
             if done:
                 print('DONE')

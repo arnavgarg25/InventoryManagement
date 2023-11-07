@@ -16,22 +16,22 @@ production_units = []
 production_units.append([5000, product_lifespan])
 
 ware_units = []
-ware_units.append([17458, product_lifespan])
+ware_units.append([16710, product_lifespan])
 
 bloem_units = []
-bloem_units.append([4613, product_lifespan])
+bloem_units.append([5028, product_lifespan])
 
 durb_units = []
-durb_units.append([6527, product_lifespan])
+durb_units.append([6333, product_lifespan])
 
 PE_units = []
-PE_units.append([1428, product_lifespan])
+PE_units.append([1241, product_lifespan])
 
 CT_units = []
-CT_units.append([1251, product_lifespan])
+CT_units.append([927, product_lifespan])
 
 pret_units = []
-pret_units.append([12347, product_lifespan])
+pret_units.append([8938, product_lifespan])
 
 min_production_limit = 5000 #units   #reset to 30000
 max_production_limit = 150000 #units
@@ -157,7 +157,11 @@ with (((summary_writer.as_default()))):
 
         # Units required at bloem
         bloem_inventory_target = math.ceil(sum(total_pred_bloem[day + 1:day + 8]))
-        bloem_units_required = bloem_inventory_target - bloem_units_sum
+        #s = 0
+        #for i in range(len(units_moving_prodware_bloem_vector)):
+        #    if units_moving_prodware_bloem_vector[i] != []:
+        #        s += units_moving_prodware_bloem_vector[i][0][0]
+        bloem_units_required = bloem_inventory_target - bloem_units_sum #- s
         if bloem_units_required < 0:
             bloem_units_required = 0
         print(f'Bloem inventory_target: {bloem_inventory_target}, Bloem units_required: {bloem_units_required}')
@@ -186,7 +190,7 @@ with (((summary_writer.as_default()))):
             pret_units_required = 0
         print(f'pret inventory_target: {pret_inventory_target}, pret units_required: {pret_units_required}')
         # Units required at ware
-        ware_inventory_target = math.ceil(sum(total_pred_jhb[day + 1:day + 8]))
+        ware_inventory_target = math.ceil(sum(total_pred_jhb[day + 1:day + 13]))
         ware_units_required = ware_inventory_target - ware_units_sum
         if ware_units_required < 0:
             ware_units_required = 0
@@ -361,6 +365,8 @@ with (((summary_writer.as_default()))):
 
             print(f'bloem warehouse order backlog: {bloem_warehouse_order_backlog}, warehouse units available: {ware_units_sum}, units moving warebloem: {units_moving_ware_bloem}, units moving ware bloem vector: {units_moving_prodware_bloem_vector}')
             print(f'no. of trucks_ware_bloem: {no_of_trucks_ware_bloem}, total delivery cost: {total_delivery_cost}')
+
+        print(f'units moving prod ware to bloem vector: {units_moving_prodware_bloem_vector}')
 
         # sending units from production to durb
         if choice > distribution_percent_durb:
@@ -1068,7 +1074,8 @@ with (((summary_writer.as_default()))):
 
         tf.summary.scalar('Units/Units satisfied', units_satisfied, step=day)
         tf.summary.scalar('Units/Units unsatisfied', units_unsatisfied, step=day)
-        tf.summary.scalar('Order fulfilment rate', fill_rate, step=day)
+        tf.summary.scalar('Units/Order fulfilment rate', fill_rate, step=day)
+        tf.summary.scalar('Units/Obsolete inventory', obsolete_inventory, step=day)
 # Flush and close the summary writer to clear the logs
 summary_writer.flush()
 summary_writer.close()
